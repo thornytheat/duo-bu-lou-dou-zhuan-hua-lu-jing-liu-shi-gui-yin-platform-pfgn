@@ -8,6 +8,7 @@ from src.routes.events import router as events_router
 from src.routes.exports import router as exports_router
 from src.routes.funnels import router as funnels_router
 from src.routes.health import router as health_router
+from src.routes.identity import router as identity_router
 from src.routes.reports import router as reports_router
 from src.routes.runs import router as runs_router
 
@@ -20,4 +21,5 @@ api_router.include_router(analysis_router)
 api_router.include_router(events_router)
 api_router.include_router(reports_router)
 api_router.include_router(exports_router)
+api_router.include_router(identity_router)
 api_router.include_router(audit_router)

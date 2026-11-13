@@ -3,6 +3,7 @@ import AppShell from '../components/layout/AppShell';
 import Attribution from '../pages/Attribution';
 import FunnelDefs from '../pages/FunnelDefs';
 import FunnelResult from '../pages/FunnelResult';
+import Identity from '../pages/Identity';
 import Login from '../pages/Login';
 import PathAnalysis from '../pages/PathAnalysis';
 import { RequireAuth, RequirePermission } from './guards';
@@ -51,6 +52,14 @@ export default function AppRouter() {
         element={
           <Protected permission="report:read">
             <Attribution />
+          </Protected>
+        }
+      />
+      <Route
+        path="/identity"
+        element={
+          <Protected permission="identity:read">
+            <Identity />
           </Protected>
         }
       />

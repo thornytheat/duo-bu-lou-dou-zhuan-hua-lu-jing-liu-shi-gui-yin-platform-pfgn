@@ -35,6 +35,16 @@ def render_markdown(report: DropReport, funnel: FunnelDef, run_payload: dict) ->
     lines.append(f"- 流失队列：未到达「{report.drop_step_label}」共 {report.cohort_users:,} 人")
     lines.append(f"- 步间耗时 P50：{_fmt_days(duration.get('p50_days'))}（P90 {_fmt_days(duration.get('p90_days'))}）")
     lines.append(f"- 丢弃原因：超窗 {discard.get('expired', 0)} · 重复折叠 {discard.get('duplicates_collapsed', 0)} · 乱序修复 {discard.get('out_of_order_events', 0)} 处")
+    identity = report.identity_snapshot or {}
+    if identity:
+        lines.append(
+            "- 身份关联：合并 {merged} 个跨身份轨迹（吸收 {absorbed} 个匿名标识）· 生效关联 {links} 条 · 数据源 `{run}`".format(
+                merged=identity.get("merged", 0),
+                absorbed=identity.get("absorbed_anonymous", 0),
+                links=identity.get("active_links", 0),
+                run=identity.get("run_code", run_payload.get("code")),
+            )
+        )
     lines.append(f"- 报告状态：{report.status} · 作者 {report.author_email or '—'} · 复核 {report.reviewer_email or '—'}")
     lines.append("")
     lines.append("## 步骤转化")
@@ -104,6 +114,17 @@ def render_markdown(report: DropReport, funnel: FunnelDef, run_payload: dict) ->
 def render_csv(report: DropReport) -> str:
     buffer = io.StringIO()
     writer = csv.writer(buffer)
+    identity = report.identity_snapshot or {}
+    if identity:
+        writer.writerow(
+            [
+                "# identity",
+                f"merged={identity.get('merged', 0)}",
+                f"absorbed_anonymous={identity.get('absorbed_anonymous', 0)}",
+                f"active_links={identity.get('active_links', 0)}",
+                f"run={identity.get('run_code', '')}",
+            ]
+        )
     writer.writerow(
         [
             "report_code",

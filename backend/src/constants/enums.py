@@ -72,6 +72,18 @@ class CacheJobStatus(str, Enum):
     FAILED = "failed"
 
 
+class IdentityLinkStatus(str, Enum):
+    """匿名标识 → 账号关联台账的状态。"""
+
+    ACTIVE = "active"          # 生效：参与身份合成
+    SUSPENDED = "suspended"    # 中断：保留台账与历史结果，不参与合成
+    CONFLICTED = "conflicted"  # 冲突：同一匿名指向多个账号，禁止合并
+
+
+# 匿名标识统一前缀；不带此前缀的 user_key 视为登录后的账号标识
+ANONYMOUS_KEY_PREFIX = "anon:"
+
+
 ROLE_LABELS: dict[str, str] = {
     Role.ADMIN.value: "增长负责人",
     Role.ANALYST.value: "产品分析师",
@@ -102,6 +114,12 @@ REPORT_STATUS_LABELS: dict[str, str] = {
     ReportStatus.PUBLISHED.value: "已发布",
 }
 
+IDENTITY_LINK_STATUS_LABELS: dict[str, str] = {
+    IdentityLinkStatus.ACTIVE.value: "生效中",
+    IdentityLinkStatus.SUSPENDED.value: "已中断",
+    IdentityLinkStatus.CONFLICTED.value: "冲突",
+}
+
 # 埋点事件 -> 中文站名（视觉上是地铁站名牌）
 EVENT_LABELS: dict[str, str] = {
     "register": "注册",
@@ -120,6 +138,9 @@ EVENT_LABELS: dict[str, str] = {
     "order": "下单",
     "claim_coupon": "领券",
     "redeem_coupon": "核销",
+    "app_open": "App 启动",
+    "login": "登录",
+    "logout": "退出登录",
 }
 
 # 会话结束标记：路径压缩时只保留末尾一次（否则跨会话会切碎路径）

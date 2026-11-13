@@ -1,5 +1,5 @@
-import type { FunnelStatus, ReportStatus } from '../../types/models';
-import { FUNNEL_STATUS_LABELS, REPORT_STATUS_LABELS } from '../../constants/enums';
+import type { FunnelStatus, IdentityLinkStatus, ReportStatus } from '../../types/models';
+import { FUNNEL_STATUS_LABELS, IDENTITY_LINK_STATUS_LABELS, REPORT_STATUS_LABELS } from '../../constants/enums';
 
 export function FunnelPill({ status }: { status: FunnelStatus }) {
   const tone = status === 'published' ? 'ok' : status === 'draft' ? 'warn' : '';
@@ -9,6 +9,11 @@ export function FunnelPill({ status }: { status: FunnelStatus }) {
 export function ReportPill({ status }: { status: ReportStatus }) {
   const tone = status === 'published' ? 'ok' : status === 'reviewed' ? 'warn' : '';
   return <span className={`pill ${tone}`}>{REPORT_STATUS_LABELS[status] ?? status}</span>;
+}
+
+export function IdentityPill({ status }: { status: IdentityLinkStatus }) {
+  const tone = status === 'active' ? 'ok' : status === 'conflicted' ? 'danger' : 'warn';
+  return <span className={`pill ${tone}`}>{IDENTITY_LINK_STATUS_LABELS[status] ?? status}</span>;
 }
 
 export function GapPill({ value }: { value: number }) {

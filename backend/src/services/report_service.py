@@ -30,6 +30,7 @@ def serialize(report: DropReport, funnel: FunnelDef | None = None) -> dict:
         "top_paths": report.top_paths or [],
         "choke_points": report.choke_points or [],
         "segment_gap": report.segment_gap or {},
+        "identity_snapshot": report.identity_snapshot or {},
         "conclusion": report.conclusion,
         "status": report.status,
         "author_email": report.author_email,
@@ -54,6 +55,15 @@ def build_payload(db: Session, run: FunnelRun, funnel: FunnelDef, step_index: in
         run_service.CHANNEL_ORDER,
         run_service.DEVICE_ORDER,
     )
+    discard = run.discard or {}
+    identity_snapshot = {
+        "engine_version": run.engine_version,
+        "run_code": run.code,
+        "entry_users": run.entry_users,
+        "merged": discard.get("identity_merged", 0),
+        "absorbed_anonymous": discard.get("identity_absorbed_anonymous", 0),
+        "active_links": discard.get("identity_active_links", 0),
+    }
     return {
         "step_index": step_index,
         "step_label": steps[step_index]["label"],
@@ -61,6 +71,7 @@ def build_payload(db: Session, run: FunnelRun, funnel: FunnelDef, step_index: in
         "top_paths": top_paths,
         "choke_points": cohort["choke_points"],
         "segment_gap": segment_gap,
+        "identity_snapshot": identity_snapshot,
         "cohort": cohort,
     }
 
@@ -82,6 +93,7 @@ def create(db: Session, run: FunnelRun, funnel: FunnelDef, payload, author_email
         top_paths=built["top_paths"],
         choke_points=built["choke_points"],
         segment_gap=built["segment_gap"],
+        identity_snapshot=built["identity_snapshot"],
         conclusion=payload.conclusion,
         status=ReportStatus.DRAFT.value,
         author_email=author_email,

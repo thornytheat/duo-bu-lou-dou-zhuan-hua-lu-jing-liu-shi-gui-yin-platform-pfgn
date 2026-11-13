@@ -33,6 +33,8 @@ class UserOutcome:
     terminal_event: str = ""
     duplicates: int = 0
     inversions: int = 0
+    # 身份合成溯源：组成该用户轨迹的原始标识（含被吸收的匿名标识）
+    source_keys: list[str] = field(default_factory=list)
 
 
 def _dedupe_and_sort(rows: list) -> tuple[list, int, int]:
@@ -127,6 +129,7 @@ def evaluate_user(
         terminal_event=terminal,
         duplicates=duplicates,
         inversions=inversions,
+        source_keys=sorted({getattr(row, "source_key", row.user_key) for row in ordered}),
     )
 
 

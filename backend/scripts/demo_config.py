@@ -197,11 +197,13 @@ C_USER_START = 4200
 C_USER_SPAN = (C_USER_START, C_USER_START + C_REDEEM + C_CLAIM_ONLY)
 
 # 自检期望值（verify_fixture.py 与 seed 都会校验）
+# unique_events 含身份场景新增的 24 条 login + 12 条 app_open（均在漏斗白名单外）；
+# 总事件再叠加 1080 条重复上报（其中 1 条复制到了 login，故 login 实际 25 条）
 EXPECTED = {
     "users": 6000,
-    "unique_events": 34920,
+    "unique_events": 34956,
     "duplicate_events": DUPLICATE_EVENTS,
-    "events": 36000,
+    "events": 36036,
     "funnel_entry": 6000,
     "trial_users": 3180,
     "pay_users": 742,
@@ -211,7 +213,94 @@ EXPECTED = {
     "choke_share_pct": 58.2,
     "max_gap_pp": 12.6,
     "report_paths": 8,
+    # 身份关联：24 个跨身份轨迹合成，吸收 24 个匿名标识，30 条台账（含重复投递 1 次）
+    "identity_merged": 24,
+    "identity_absorbed_anonymous": 24,
+    "identity_links": 30,
+    "identity_conflict_links": 4,
+    "identity_suspended_links": 2,
+    "identity_active_links": 24,
 }
+
+# ---------------------------------------------------------------- 身份关联场景
+# 匿名访客「先看课、后登录」：同一自然人在登录前用 anon: 标识、登录后用账号标识。
+# 1) MERGE_* 个用户的轨迹在 register 处切两段，登录前事件挂匿名标识，登录后挂账号；
+#    active 关联生效后，身份合成应把人数还原成切分前的 6,000 / 3,180 / 742；
+# 2) CONFLICT_* 组：同一个匿名标识先后指向两个账号，台账必须标 conflicted 且不合并；
+# 3) SUSPEND_* 组：关联被中断，不参与合成，恢复后重新合成。
+# 冲突/中断组只产生漏斗白名单外的 app_open，不改变漏斗验收值。
+IDENTITY_MERGE_USERS = 24
+IDENTITY_MERGE_BASE = 1300           # 选号起点：落在只有漏斗 A 事件的 [1200, 4200) 区间
+IDENTITY_MERGE_STRIDE = 113          # 线性选号，24 人互不重叠，覆盖多种路径原型
+IDENTITY_CONFLICT_GROUPS = 2
+IDENTITY_SUSPEND_GROUPS = 2
+IDENTITY_APP_OPEN_HOURS = (-26.0, -20.0, -8.0)
+IDENTITY_LOGIN_HOURS = -0.5
+
+# 身份关联台账（seed 时按此投递；含一组重复投递验证幂等、两组冲突、两组中断）
+def identity_link_specs() -> list[dict]:
+    """返回台账投递序列：dict(anonymous_key, account_key, action, times, note)。"""
+    specs: list[dict] = []
+    for index in range(IDENTITY_MERGE_USERS):
+        user_index = IDENTITY_MERGE_BASE + index * IDENTITY_MERGE_STRIDE
+        account = f"U{user_index + 1:04d}"
+        specs.append(
+            {
+                "anonymous_key": f"anon:dev{user_index + 1:05d}",
+                "account_key": account,
+                "action": "deliver",
+                "times": 2 if index == 0 else 1,  # 首组重复投递一次，验证幂等
+                "note": "登录后绑定设备匿名标识",
+            }
+        )
+    # 冲突：anon:conflict-a 同时指向 U5001 / U5002；anon:conflict-b 指向 U5003 / U5004
+    conflict_pairs = [
+        ("anon:conflict-a", "U5001"),
+        ("anon:conflict-a", "U5002"),
+        ("anon:conflict-b", "U5003"),
+        ("anon:conflict-b", "U5004"),
+    ]
+    for anonymous_key, account_key in conflict_pairs:
+        specs.append(
+            {
+                "anonymous_key": anonymous_key,
+                "account_key": account_key,
+                "action": "deliver",
+                "times": 1,
+                "note": "同一匿名标识指向多个账号（冲突）",
+            }
+        )
+    # 中断：投递后由 seed 置 suspended
+    suspend_pairs = [
+        ("anon:paused-a", "U5005"),
+        ("anon:paused-b", "U5006"),
+    ]
+    for anonymous_key, account_key in suspend_pairs:
+        specs.append(
+            {
+                "anonymous_key": anonymous_key,
+                "account_key": account_key,
+                "action": "deliver",
+                "times": 1,
+                "note": "关联中断（历史结果保留）",
+            }
+        )
+    return specs
+
+
+# seed 后需要立即置为中断的关联对
+SUSPEND_PAIRS = [("anon:paused-a", "U5005"), ("anon:paused-b", "U5006")]
+# 冲突组的匿名标识（fixture 给它们造白名单外的启动事件）
+CONFLICT_ANONYMOUS_KEYS = ["anon:conflict-a", "anon:conflict-b"]
+SUSPEND_ANONYMOUS_KEYS = ["anon:paused-a", "anon:paused-b"]
+
+
+def merge_accounts() -> list[str]:
+    """24 个被切分轨迹的账号键（与 fixture 切分、台账投递严格对齐）。"""
+    return [
+        f"U{IDENTITY_MERGE_BASE + index * IDENTITY_MERGE_STRIDE + 1:04d}"
+        for index in range(IDENTITY_MERGE_USERS)
+    ]
 
 # 种子报告：模板化结论（数值由算法回填，不在文案里写死）
 SEED_REPORT_CONCLUSION = (

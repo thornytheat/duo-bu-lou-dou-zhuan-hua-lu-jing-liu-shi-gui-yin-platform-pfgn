@@ -12,13 +12,16 @@ PERMISSIONS: dict[str, set[str]] = {
         "export:read",
         "cache:refresh",
         "audit:read",
+        "identity:read", "identity:write", "identity:resolve",
     },
     Role.ANALYST.value: {
         "funnel:read", "run:execute", "run:read", "event:read",
         "report:read", "report:write", "export:read", "cache:refresh",
+        "identity:read", "identity:write",
     },
     Role.VIEWER.value: {
         "funnel:read", "run:read", "event:read", "report:read",
+        "identity:read",
     },
 }
 

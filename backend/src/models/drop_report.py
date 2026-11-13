@@ -24,6 +24,8 @@ class DropReport(Base):
     top_paths: Mapped[list] = mapped_column(JSON, nullable=False)
     choke_points: Mapped[list] = mapped_column(JSON, nullable=False)
     segment_gap: Mapped[dict] = mapped_column(JSON, nullable=False)
+    # 生成报告那次运行的身份合成快照：结果页 / 路径 / 导出反映同一次合并
+    identity_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     conclusion: Mapped[str] = mapped_column(Text, nullable=False, default="")
     status: Mapped[str] = mapped_column(String(16), nullable=False, default=ReportStatus.DRAFT.value)
     author_email: Mapped[str] = mapped_column(String(160), nullable=False, default="")

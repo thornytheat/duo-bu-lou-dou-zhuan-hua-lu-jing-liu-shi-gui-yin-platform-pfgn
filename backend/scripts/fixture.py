@@ -193,6 +193,98 @@ def build_funnel_c_events(users: list[dict]) -> list[dict]:
     return rows
 
 
+def _anonymous_row(anonymous_key: str, event: str, ts: datetime, seq: int,
+                   channel: str, device: str, session_id: str) -> dict:
+    return {
+        "user_key": anonymous_key,
+        "event_name": event,
+        "event_ts": ts,
+        "seq": seq,
+        "session_id": session_id,
+        "channel": channel,
+        "device": device,
+        "source": "fixture",
+    }
+
+
+def _merge_index_by_account() -> dict[str, int]:
+    return {account: index for index, account in enumerate(cfg.merge_accounts())}
+
+
+def split_anonymous_timelines(users: list[dict], rows: list[dict]) -> list[dict]:
+    """把 24 个用户在「注册」处切成匿名段 + 账号段，模拟先浏览后登录。
+
+    注册事件及其之前的事件归匿名标识（注册 = 匿名访客留下的最后一个动作），
+    注册之后的事件归登录账号；切分前后事件总量与时间完全不变，只改 user_key，
+    因此身份合成还原后漏斗验收值应逐一对齐。另补一条注册前的 login 埋点
+    （白名单外），让匿名侧在漏斗之外也有可追溯的身份事件。
+    """
+    merge_index = _merge_index_by_account()
+    target_accounts = set(merge_index)
+    split_rows: list[dict] = []
+    for row in rows:
+        account = row["user_key"]
+        if account not in target_accounts:
+            split_rows.append(row)
+            continue
+        user = users[int(account[1:]) - 1]
+        anonymous_key = f"anon:dev{int(account[1:]):05d}"
+        register_ts = next(item["event_ts"] for item in rows
+                           if item["user_key"] == account and item["event_name"] == "register")
+        if row["event_ts"] <= register_ts:
+            # 注册（含）之前：匿名访客轨迹
+            split_rows.append(
+                _anonymous_row(
+                    anonymous_key,
+                    row["event_name"],
+                    row["event_ts"],
+                    row["seq"],
+                    row["channel"],
+                    row["device"],
+                    row["session_id"],
+                )
+            )
+        else:
+            # 注册之后：登录账号轨迹
+            split_rows.append(row)
+        if row["event_name"] == "register":
+            # 登录埋点发生在注册前半小时，归属匿名标识，且在漏斗白名单之外
+            split_rows.append(
+                _anonymous_row(
+                    anonymous_key,
+                    "login",
+                    register_ts + timedelta(hours=cfg.IDENTITY_LOGIN_HOURS),
+                    row["seq"],
+                    row["channel"],
+                    row["device"],
+                    f"{anonymous_key}-pre",
+                )
+            )
+    return split_rows
+
+
+def build_identity_outline_events(users: list[dict]) -> list[dict]:
+    """冲突组 / 中断组匿名标识的白名单外事件（app_open），不影响漏斗计数。"""
+    extra: list[dict] = []
+    anonymous_keys = list(cfg.CONFLICT_ANONYMOUS_KEYS) + list(cfg.SUSPEND_ANONYMOUS_KEYS)
+    # 借用前几个用户的时间基准与渠道设备，保证确定性
+    for position, anonymous_key in enumerate(anonymous_keys):
+        user = users[position]
+        for offset in cfg.IDENTITY_APP_OPEN_HOURS:
+            extra.append(
+                _anonymous_row(
+                    anonymous_key,
+                    "app_open",
+                    user["t0"] + timedelta(hours=offset),
+                    0,
+                    user["channel"],
+                    user["device"],
+                    f"{anonymous_key}-pre",
+                )
+            )
+    return extra
+
+
 def build_fixture() -> tuple[list[dict], list[dict]]:
     """返回 (users, rows)。rows 已含 3% 重复上报与 5% 乱序 seq。"""
     users = build_user_rows()
@@ -201,6 +293,9 @@ def build_fixture() -> tuple[list[dict], list[dict]]:
         + build_funnel_b_events(users)
         + build_funnel_c_events(users)
     )
+    # 身份场景：切分匿名/账号轨迹 + 冲突/中断组的白名单外事件
+    unique_rows = split_anonymous_timelines(users, unique_rows)
+    unique_rows = unique_rows + build_identity_outline_events(users)
 
     # 重复上报：每 32 个唯一事件复制 1 条（同用户同事件同秒，靠算法折叠）
     rows: list[dict] = []

@@ -19,7 +19,7 @@ class EventLog(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     seed_key: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
-    user_key: Mapped[str] = mapped_column(String(24), nullable=False)
+    user_key: Mapped[str] = mapped_column(String(64), nullable=False)
     event_name: Mapped[str] = mapped_column(String(48), nullable=False)
     event_ts: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     seq: Mapped[int] = mapped_column(BigInteger, nullable=False)

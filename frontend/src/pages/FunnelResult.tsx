@@ -183,6 +183,23 @@ export default function FunnelResult() {
                 <small>{num(run.discard.out_of_order_users ?? 0)} 个用户</small>
               </div>
             </div>
+            {run.identity && run.identity.merged > 0 ? (
+              <div
+                className="panel line-d"
+                style={{ marginTop: 16, padding: '12px 16px', borderLeftColor: 'var(--line-d)' }}
+                data-testid="identity-strip"
+              >
+                <div className="panel-head" style={{ marginBottom: 6 }}>
+                  <h3 style={{ fontSize: '0.95rem' }}>身份关联合成</h3>
+                  <span className="eyebrow">IDENTITY MERGE</span>
+                </div>
+                <div className="tiny">
+                  本次运行把 <b>{num(run.identity.merged)}</b> 个「先匿名浏览、后登录」的跨身份轨迹合成一条路径，
+                  吸收 <b>{num(run.identity.absorbed_anonymous)}</b> 个匿名标识；生效关联{' '}
+                  <b>{num(run.identity.active_links)}</b> 条。渠道与设备沿用最早有效触达，同一关联重复投递不新增人数。
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div className="grid-2" style={{ marginTop: 20 }}>

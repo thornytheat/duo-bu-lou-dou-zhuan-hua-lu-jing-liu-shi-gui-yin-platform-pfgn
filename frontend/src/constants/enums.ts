@@ -1,5 +1,5 @@
 /** 共享枚举（前端侧）：与 backend/src/constants/enums.py 一一对应。 */
-import type { Channel, Device, FunnelStatus, ReportStatus, Role, RunStatus } from '../types/models';
+import type { Channel, Device, FunnelStatus, IdentityLinkStatus, ReportStatus, Role, RunStatus } from '../types/models';
 
 export const ROLES: Role[] = ['admin', 'analyst', 'viewer'];
 
@@ -37,6 +37,12 @@ export const REPORT_STATUS_LABELS: Record<ReportStatus, string> = {
   published: '已发布',
 };
 
+export const IDENTITY_LINK_STATUS_LABELS: Record<IdentityLinkStatus, string> = {
+  active: '生效中',
+  suspended: '已中断',
+  conflicted: '冲突',
+};
+
 /** 事件 -> 地铁站名（与后端 EVENT_LABELS 同源） */
 export const EVENT_LABELS: Record<string, string> = {
   register: '注册',
@@ -55,6 +61,9 @@ export const EVENT_LABELS: Record<string, string> = {
   order: '下单',
   claim_coupon: '领券',
   redeem_coupon: '核销',
+  app_open: 'App 启动',
+  login: '登录',
+  logout: '退出登录',
 };
 
 export const TERMINAL_EVENTS = ['exit'] as const;

@@ -6,6 +6,7 @@ export type Device = 'ios' | 'android';
 export type FunnelStatus = 'draft' | 'published' | 'archived';
 export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed';
 export type ReportStatus = 'draft' | 'reviewed' | 'published';
+export type IdentityLinkStatus = 'active' | 'suspended' | 'conflicted';
 
 export interface UserInfo {
   id: number;
@@ -93,6 +94,11 @@ export interface FunnelRun {
   transitions: TransitionRow[];
   duration: DurationStats;
   discard: Record<string, number>;
+  identity: {
+    merged: number;
+    absorbed_anonymous: number;
+    active_links: number;
+  };
   segments: SegmentRow[];
   lost_steps: LostStep[];
   max_loss_step: number;
@@ -201,6 +207,7 @@ export interface DropReport {
   top_paths: PathEntry[];
   choke_points: ChokePoint[];
   segment_gap: SegmentBlock;
+  identity_snapshot: IdentitySnapshot;
   conclusion: string;
   status: ReportStatus;
   author_email: string;
@@ -237,4 +244,46 @@ export interface CacheStatus {
   top_path: string | null;
   cohort_users: number | null;
   source_run: string | null;
+}
+
+export interface IdentityLink {
+  id: number;
+  anonymous_key: string;
+  account_key: string;
+  status: IdentityLinkStatus;
+  delivery_count: number;
+  conflict_with: string | null;
+  conflict_detail: Record<string, unknown>;
+  note: string;
+  first_seen_at: string | null;
+  last_delivery_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface IdentitySummary {
+  total: number;
+  by_status: Record<IdentityLinkStatus, number>;
+  active: number;
+  suspended: number;
+  conflicted: number;
+  repeated_deliveries: number;
+  deliverable_pairs: number;
+}
+
+export interface IdentityDeliveryInfo {
+  created: boolean;
+  delivery_count: number;
+  status: IdentityLinkStatus;
+  conflict: boolean;
+  conflict_accounts?: string[];
+}
+
+export interface IdentitySnapshot {
+  engine_version?: string;
+  run_code?: string;
+  entry_users?: number;
+  merged: number;
+  absorbed_anonymous: number;
+  active_links: number;
 }

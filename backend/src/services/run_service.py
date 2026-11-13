@@ -12,14 +12,28 @@ from src.models.event import EventLog
 from src.models.funnel import FunnelDef
 from src.models.funnel_run import FunnelRun
 from src.models.session_path import SessionPath
-from src.services import funnel_engine, path_engine, segment_service
+from src.services import funnel_engine, identity_service, path_engine, segment_service
 from src.utils.errors import not_found
 from src.utils.pathutil import path_label
 from src.utils.timeutil import BIZ_TZ, iso
 
 CHANNEL_ORDER = [channel.value for channel in Channel]
 DEVICE_ORDER = [device.value for device in Device]
-ENGINE_VERSION = "1.0.0"
+ENGINE_VERSION = "1.1.0"
+
+
+def _load_identity_grouped(db: Session, vocabulary: set[str]) -> tuple[dict[str, list], dict]:
+    """取白名单事件 -> 身份合成 -> 按合成后归属键分组。"""
+    rows = db.scalars(
+        select(EventLog)
+        .where(EventLog.event_name.in_(list(vocabulary)))
+        .order_by(EventLog.user_key, EventLog.event_ts, EventLog.seq)
+    ).all()
+    resolved, identity_stats = identity_service.resolve_event_rows(db, list(rows))
+    grouped: dict[str, list] = defaultdict(list)
+    for row in resolved:
+        grouped[row.user_key].append(row)
+    return grouped, identity_stats
 
 
 def execute(
@@ -31,14 +45,7 @@ def execute(
 ) -> FunnelRun:
     window = window_days or funnel.window_days
     vocabulary = funnel.vocabulary
-    rows = db.scalars(
-        select(EventLog)
-        .where(EventLog.event_name.in_(list(vocabulary)))
-        .order_by(EventLog.user_key, EventLog.event_ts, EventLog.seq)
-    ).all()
-    grouped: dict[str, list] = defaultdict(list)
-    for row in rows:
-        grouped[row.user_key].append(row)
+    grouped, identity_stats = _load_identity_grouped(db, vocabulary)
 
     result = funnel_engine.run_funnel(grouped, funnel.steps, window, vocabulary)
     segments = segment_service.build_segments(
@@ -47,6 +54,14 @@ def execute(
         max_loss_step(result["steps"]),
         CHANNEL_ORDER,
         DEVICE_ORDER,
+    )
+    # 身份合成统计并入丢弃口径块：结果页 / 报告 / 导出共用同一份快照
+    result["discard"].update(
+        {
+            "identity_merged": identity_stats["merged_components"],
+            "identity_absorbed_anonymous": identity_stats["absorbed_anonymous_keys"],
+            "identity_active_links": identity_stats["active_links"],
+        }
     )
 
     run_code = code or f"RUN-{funnel.code.upper()}-{datetime.now(BIZ_TZ).strftime('%Y%m%d%H%M%S%f')}"
@@ -94,6 +109,7 @@ def execute(
     mappings = []
     for outcome in result["outcomes"].values():
         label = outcome.path_label or path_label(outcome.path_events)
+        source_keys = list(outcome.source_keys or [outcome.user_key])
         mappings.append(
             {
                 "funnel_id": funnel.id,
@@ -107,6 +123,8 @@ def execute(
                 "drop_step_index": outcome.drop_step,
                 "terminal_event": outcome.terminal_event or "",
                 "is_converted": outcome.converted,
+                "source_keys": source_keys,
+                "identity_merged": len(source_keys) > 1,
             }
         )
     if mappings:
@@ -131,6 +149,7 @@ def serialize(run: FunnelRun, funnel: FunnelDef | None = None) -> dict:
     transitions = (run.duration_stats or {}).get("transitions", [])
     step_rows = run.step_counts or []
     lost_rows = path_engine.drop_steps(step_rows)
+    discard = run.discard or {}
     return {
         "id": run.id,
         "code": run.code,
@@ -148,7 +167,12 @@ def serialize(run: FunnelRun, funnel: FunnelDef | None = None) -> dict:
         "steps": step_rows,
         "transitions": transitions,
         "duration": duration,
-        "discard": run.discard or {},
+        "discard": discard,
+        "identity": {
+            "merged": discard.get("identity_merged", 0),
+            "absorbed_anonymous": discard.get("identity_absorbed_anonymous", 0),
+            "active_links": discard.get("identity_active_links", 0),
+        },
         "segments": run.segment_rows or [],
         "lost_steps": lost_rows,
         "max_loss_step": max_loss_step(step_rows) if step_rows else 1,
@@ -231,6 +255,8 @@ def outcomes_for_run(db: Session, run: FunnelRun) -> dict:
                 "drop_step": row.drop_step_index,
                 "reached_step": row.drop_step_index,
                 "converted": row.is_converted,
+                "source_keys": row.source_keys or [row.user_key],
+                "identity_merged": row.identity_merged,
             },
         )()
     return outcomes

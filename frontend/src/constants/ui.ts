@@ -4,6 +4,7 @@ export const NAV_ITEMS = [
   { to: '/results', label: '漏斗结果', code: 'B', line: 'L1', permission: 'run:read', hint: '转化与耗时' },
   { to: '/paths', label: '路径分析', code: 'C', line: 'L2', permission: 'run:read', hint: '前缀树与卡点' },
   { to: '/reports', label: '归因报告', code: 'D', line: 'L3', permission: 'report:read', hint: '复核与导出' },
+  { to: '/identity', label: '身份关联', code: 'E', line: 'L2', permission: 'identity:read', hint: '匿名到账号' },
 ] as const;
 
 export const DEMO_ACCOUNTS = [

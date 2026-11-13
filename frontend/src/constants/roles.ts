@@ -27,6 +27,9 @@ export const PERMISSIONS: Record<Role, string[]> = {
     'export:read',
     'cache:refresh',
     'audit:read',
+    'identity:read',
+    'identity:write',
+    'identity:resolve',
   ],
   analyst: [
     'funnel:read',
@@ -37,8 +40,10 @@ export const PERMISSIONS: Record<Role, string[]> = {
     'report:write',
     'export:read',
     'cache:refresh',
+    'identity:read',
+    'identity:write',
   ],
-  viewer: ['funnel:read', 'run:read', 'event:read', 'report:read'],
+  viewer: ['funnel:read', 'run:read', 'event:read', 'report:read', 'identity:read'],
 };
 
 export function can(role: Role | undefined, permission: string): boolean {

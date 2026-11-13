@@ -26,13 +26,25 @@
 | 14:10 | 林知远 | 复核 → 发布报告 | 报告状态 published |
 | 16:00 | 周雨桐（viewer） | 只读看结果与报告 | 无写操作按钮，接口层 403 |
 
-## 2. 主要功能（4 个可串成链路的业务模块）
+## 2. 主要功能（5 个可串成链路的业务模块）
 
 1. **配置（漏斗定义）**：站点序列拖拽排序、窗口天数、跨会话开关、去噪白名单；admin 保存 / 发布，analyst 可试算。
-2. **运行（采集→计算）**：analyst/admin 触发运行，后端按用户级状态机真算，落 `funnel_runs` 与 `session_paths`。
-3. **解析（漏斗结果）**：步骤条 + 每步人数 / 转化率 / 步间耗时 P50·P90 + 分群（渠道 × 设备）对比。
-4. **复核 / 归因（路径 + 报告）**：前缀树、Top-8 前置路径、卡点事件、分群差 → 生成 `drop_reports` → admin 复核发布。
-5. **导出**：报告渲染 Markdown / CSV（8 条路径），同时落一份到 backend/worker 共享卷 `/app/var/exports`。
+2. **运行（采集→计算）**：analyst/admin 触发运行，后端按用户级状态机真算，落 `funnel_runs` 与 `session_paths`；运行前先做身份合成，把「先匿名浏览、后登录」的两段轨迹并成一个人。
+3. **解析（漏斗结果）**：步骤条 + 每步人数 / 转化率 / 步间耗时 P50·P90 + 分群（渠道 × 设备）对比 + 身份合成指标。
+4. **复核 / 归因（路径 + 报告）**：前缀树、Top-8 前置路径、卡点事件、分群差 → 生成 `drop_reports` → admin 复核发布；报告固化身份快照，结果页 / 路径 / 导出同源。
+5. **身份关联（匿名 → 账号）**：关联台账 `identity_links`，幂等投递、冲突标记、中断 / 恢复；决定运行时哪些匿名标识与账号合并。
+6. **导出**：报告渲染 Markdown / CSV（8 条路径 + 身份合成信息），同时落一份到 backend/worker 共享卷 `/app/var/exports`。
+
+### 身份关联合成口径（匿名访客先看课、后登录）
+
+| 规则 | 落地位置 |
+|---|---|
+| 关联后按行为事件时间 `(event_ts, seq)` 合成一条路径 | `services/identity_service.resolve_rows` → `funnel_engine` |
+| 渠道 / 设备沿用组内**最早有效触达**（最早事件的渠道设备） | `resolve_rows` 统一改写 `IdentityRow.channel/device` |
+| 同一关联对重复投递只累加 `delivery_count`，不新增台账行、不新增人数 | `identity_link_service.deliver` 幂等 + 合成在事件组上做 |
+| 一个匿名标识指向两个账号：相关关联全部 `conflicted`，**不强行合并**，两边原结果保留 | `deliver` 冲突检测；合成只取 `active` 链接 |
+| 关联中断 `suspended`：保留台账与历史 run 结果，不参与合成；`resume` 后下次运行恢复 | 台账状态机；旧 `session_paths` 不删除 |
+| 成功后结果页、路径、报告、导出反映**同一次合并** | run `discard.identity_*` + `session_paths.source_keys` + `drop_reports.identity_snapshot` |
 
 异步：worker（Celery）负责心跳、每 10 分钟的流失漂移巡检、以及按需「刷新路径缓存」（backend 投递任务 → worker 计算 → Redis 回写 → 前端轮询）。
 
@@ -94,11 +106,11 @@ gb-585/
 │       ├── main.py  tasks.py
 │       ├── config/       # settings / database / app / celery_app
 │       ├── constants/    # enums（共享枚举）/ roles / limits / error_codes
-│       ├── models/       # user / funnel / event / funnel_run / session_path / drop_report / audit
+│       ├── models/       # user / funnel / event / funnel_run / session_path / drop_report / identity_link / audit
 │       ├── schemas/      # pydantic 入参出参
-│       ├── services/     # funnel_engine、path_engine、segment_service、run/report/export/cache…
+│       ├── services/     # funnel_engine、path_engine、identity_service、identity_link_service、segment_service、run/report/export/cache…
 │       ├── controllers/  # 业务编排 + 领域审计
-│       ├── routes/       # /api/... 路由聚合
+│       ├── routes/       # /api/... 路由聚合（含 /identity）
 │       ├── middlewares/  # auth / rbac / audit_logger / rate_limit / error_handler
 │       └── utils/        # security / stats / pathutil / timeutil / errors / logger
 └── frontend/
@@ -144,11 +156,12 @@ gb-585/
 
 **算法 1 · 用户级漏斗状态机**（`src/services/funnel_engine.py`）
 
-1. 按 `user_key` 分组，事件按 `(event_ts, seq)` 稳定排序：`seq` 是入库先后，乱序上报靠事件时间纠正，同秒再退化成 `seq`；
+0. 运行前先做身份合成（`src/services/identity_service.py`）：按关联台账把匿名标识与账号的事件并到同一归属键，渠道/设备取组内最早有效触达；
+1. 按合成后的 `user_key` 分组，事件按 `(event_ts, seq)` 稳定排序：`seq` 是入库先后，乱序上报靠事件时间纠正，同秒再退化成 `seq`；
 2. 同事件同秒的重复上报只计一次（`duplicates_collapsed`）；
 3. 严格顺序推进：只认当前步骤对应事件，跳步不算；
 4. 窗口从首步命中时刻起算，超窗即中止并计 `expired`；
-5. 输出每步人数、较上一步 / 较首步转化率、步间耗时 P50/P90（所有跨步样本合并 + 分区间各一份）、丢弃原因计数。
+5. 输出每步人数、较上一步 / 较首步转化率、步间耗时 P50/P90（所有跨步样本合并 + 分区间各一份）、丢弃原因计数（含身份合成计数）。
 
 **算法 2 · 路径压缩与流失归因**（`src/services/path_engine.py` + `pathutil.py` + `segment_service.py`）
 
@@ -172,13 +185,24 @@ gb-585/
 
 ## 10. 共享枚举出现位置
 
-**后端 `backend/src/constants/enums.py`**：`Role` / `Channel` / `Device` / `FunnelStatus` / `RunStatus` / `RunTrigger` / `DropReason` / `ReportStatus` / `ExportFormat` / `CacheJobStatus` + `EVENT_LABELS` / `CHANNEL_LABELS` / `DEVICE_LABELS` / `ROLE_LABELS` / `TERMINAL_EVENTS`。
-引用点：`models/*.py`（列默认值）、`constants/roles.py`（权限矩阵）、`services/funnel_engine.py`、`services/path_engine.py`、`services/segment_service.py`、`services/run_service.py`、`services/report_service.py`、`services/export_service.py`、`controllers/*`、`routes/*`、`scripts/demo_config.py`、`scripts/seed_demo.py`。
+**后端 `backend/src/constants/enums.py`**：`Role` / `Channel` / `Device` / `FunnelStatus` / `RunStatus` / `RunTrigger` / `DropReason` / `ReportStatus` / `ExportFormat` / `CacheJobStatus` / `IdentityLinkStatus` + `EVENT_LABELS` / `CHANNEL_LABELS` / `DEVICE_LABELS` / `ROLE_LABELS` / `IDENTITY_LINK_STATUS_LABELS` / `TERMINAL_EVENTS` / `ANONYMOUS_KEY_PREFIX`。
+引用点：`models/*.py`（列默认值）、`constants/roles.py`（权限矩阵）、`services/funnel_engine.py`、`services/path_engine.py`、`services/segment_service.py`、`services/run_service.py`、`services/report_service.py`、`services/export_service.py`、`services/identity_service.py`、`services/identity_link_service.py`、`controllers/*`、`routes/*`、`scripts/demo_config.py`、`scripts/seed_demo.py`。
 
-**前端 `frontend/src/constants/enums.ts`**：同名枚举与标签表 `CHANNEL_LABELS` / `DEVICE_LABELS` / `FUNNEL_STATUS_LABELS` / `RUN_STATUS_LABELS` / `REPORT_STATUS_LABELS` / `EVENT_LABELS` / `TERMINAL_EVENTS` / `LINE_COLORS`。
-引用点：`types/models.ts`、`constants/roles.ts`、`constants/ui.ts`、`components/common/StationStrip.tsx`、`PathTree.tsx`、`SegmentTable.tsx`、`ChokeBars.tsx`、`StatusPill.tsx`、`pages/{FunnelDefs,FunnelResult,PathAnalysis,Attribution,Login}.tsx`、`utils/format.ts`。
+**前端 `frontend/src/constants/enums.ts`**：同名枚举与标签表 `CHANNEL_LABELS` / `DEVICE_LABELS` / `FUNNEL_STATUS_LABELS` / `RUN_STATUS_LABELS` / `REPORT_STATUS_LABELS` / `IDENTITY_LINK_STATUS_LABELS` / `EVENT_LABELS` / `TERMINAL_EVENTS` / `LINE_COLORS`。
+引用点：`types/models.ts`、`constants/roles.ts`、`constants/ui.ts`、`components/common/StationStrip.tsx`、`PathTree.tsx`、`SegmentTable.tsx`、`ChokeBars.tsx`、`StatusPill.tsx`、`pages/{FunnelDefs,FunnelResult,PathAnalysis,Attribution,Identity,Login}.tsx`、`utils/format.ts`。
 
-角色权限枚举两份：`backend/src/constants/roles.py` ↔ `frontend/src/constants/roles.ts`（`ROLE_LABELS` + `PERMISSIONS` 必须同步）。
+角色权限枚举两份：`backend/src/constants/roles.py` ↔ `frontend/src/constants/roles.ts`（`ROLE_LABELS` + `PERMISSIONS` 必须同步）。身份相关权限点：`identity:read`（三角色）/ `identity:write`（admin、analyst）/ `identity:resolve`（仅 admin，冲突解决）。
+
+**身份关联 API**（前缀 `/api/identity`）：
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | `/links` | `identity:read` | 台账列表，可按 status / anonymous_key / account_key 过滤，带摘要 |
+| POST | `/links` | `identity:write` | 幂等投递关联；重复投递累加计数，检测到一对多返回冲突标记 |
+| GET | `/summary` | `identity:read` | 各状态计数与重复投递次数 |
+| POST | `/links/{id}/suspend` | `identity:write` | 中断关联（历史结果保留） |
+| POST | `/links/{id}/resume` | `identity:write` | 恢复中断的关联 |
+| POST | `/links/{id}/resolve` | `identity:resolve` | 冲突解决：`activate` 重新生效或 `suspend` 放弃绑定 |
 
 ## 11. License
 

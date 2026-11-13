@@ -107,17 +107,27 @@ def publish(db: Session, funnel: FunnelDef) -> FunnelDef:
 
 
 def trial(db: Session, steps: list[dict], window_days: int, noise_events: list[str]) -> dict:
-    """试算：直接对全量事件跑一次状态机，不写库。"""
+    """试算：直接对全量事件跑一次状态机，不写库（同样经过身份合成）。"""
+    from src.services import identity_service
+
     vocabulary = {step["event"] for step in steps} | set(noise_events)
     rows = db.scalars(
         select(EventLog)
         .where(EventLog.event_name.in_(list(vocabulary)))
         .order_by(EventLog.user_key, EventLog.event_ts, EventLog.seq)
     ).all()
+    resolved, identity_stats = identity_service.resolve_event_rows(db, list(rows))
     grouped: dict[str, list] = defaultdict(list)
-    for row in rows:
+    for row in resolved:
         grouped[row.user_key].append(row)
     result = funnel_engine.run_funnel(grouped, steps, window_days, vocabulary)
+    result["discard"].update(
+        {
+            "identity_merged": identity_stats["merged_components"],
+            "identity_absorbed_anonymous": identity_stats["absorbed_anonymous_keys"],
+            "identity_active_links": identity_stats["active_links"],
+        }
+    )
     return {
         "steps": result["steps"],
         "duration": result["duration"],

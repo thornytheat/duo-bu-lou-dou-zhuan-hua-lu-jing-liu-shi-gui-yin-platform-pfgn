@@ -267,7 +267,19 @@ export default function Attribution() {
                           : '—'}
                       </small>
                     </div>
+                    <div className="metric">
+                      <span className="label">身份合成</span>
+                      <b>{num(currentReport.identity_snapshot?.merged ?? 0)}</b>
+                      <small>吸收 {num(currentReport.identity_snapshot?.absorbed_anonymous ?? 0)} 个匿名标识</small>
+                    </div>
                   </div>
+
+                  {currentReport.identity_snapshot && currentReport.identity_snapshot.merged > 0 ? (
+                    <div className="tiny muted" style={{ marginTop: 10 }} data-testid="report-identity-note">
+                      本报告基于运行 <span className="mono">{currentReport.identity_snapshot.run_code}</span> 的身份合成结果：
+                      {num(currentReport.identity_snapshot.merged)} 个跨身份轨迹已合并，结果页、路径与导出反映同一次合并。
+                    </div>
+                  ) : null}
 
                   <div className="field" style={{ marginTop: 14 }}>
                     <label htmlFor="report-title">报告标题</label>

@@ -4,6 +4,7 @@ from src.models.drop_report import DropReport
 from src.models.event import EventLog
 from src.models.funnel import FunnelDef
 from src.models.funnel_run import FunnelRun
+from src.models.identity_link import IdentityLink
 from src.models.session_path import SessionPath
 from src.models.user import User
 from src.config.database import Base
@@ -15,6 +16,7 @@ __all__ = [
     "EventLog",
     "FunnelDef",
     "FunnelRun",
+    "IdentityLink",
     "SessionPath",
     "User",
 ]

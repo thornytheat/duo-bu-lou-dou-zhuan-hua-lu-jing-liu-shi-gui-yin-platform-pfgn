@@ -22,6 +22,7 @@ from src.models.audit import AuditLog
 from src.models.drop_report import DropReport
 from src.models.event import EventLog
 from src.models.funnel import FunnelDef
+from src.models.identity_link import IdentityLink
 from src.models.user import User
 from src.utils.security import hash_password
 from src.utils.timeutil import BIZ_TZ
@@ -147,6 +148,7 @@ def ensure_reports(db, funnels: dict[str, FunnelDef]) -> list[DropReport]:
             report.top_paths = payload["top_paths"]
             report.choke_points = payload["choke_points"]
             report.segment_gap = payload["segment_gap"]
+            report.identity_snapshot = payload["identity_snapshot"]
         db.flush()
         created.append(report)
     return created
@@ -178,6 +180,42 @@ def ensure_audit(db) -> None:
     db.flush()
 
 
+def ensure_identity_links(db) -> dict:
+    """投递身份关联台账：幂等重复投递、冲突标记、中断状态一次到位。"""
+    from src.constants.enums import IdentityLinkStatus
+    from src.services import identity_link_service
+
+    stats = {"delivered": 0, "duplicates": 0, "conflicts": 0, "suspended": 0}
+    suspend_pairs = set(cfg.SUSPEND_PAIRS)
+    for spec in cfg.identity_link_specs():
+        for attempt in range(spec["times"]):
+            _link, info = identity_link_service.deliver(
+                db,
+                spec["anonymous_key"],
+                spec["account_key"],
+                spec["note"],
+            )
+            if info["created"]:
+                stats["delivered"] += 1
+            else:
+                stats["duplicates"] += 1
+            if info["conflict"]:
+                stats["conflicts"] += 1
+    # 中断组：投递后置 suspended（历史结果保留，不参与合成）
+    for anonymous_key, account_key in suspend_pairs:
+        link = db.scalar(
+            select(IdentityLink).where(
+                IdentityLink.anonymous_key == anonymous_key,
+                IdentityLink.account_key == account_key,
+            )
+        )
+        if link is not None and link.status == IdentityLinkStatus.ACTIVE.value:
+            identity_link_service.suspend(db, link.id)
+            stats["suspended"] += 1
+    db.flush()
+    return stats
+
+
 def seed_all() -> str:
     from src.services import run_service
 
@@ -207,6 +245,7 @@ def seed_all() -> str:
             )
 
         reports = ensure_reports(db, funnels)
+        identity_stats = ensure_identity_links(db)
         ensure_audit(db)
         db.flush()
 
@@ -216,15 +255,23 @@ def seed_all() -> str:
         channel_count = db.scalar(select(func.count(func.distinct(EventLog.channel)))) or 0
         account_count = db.scalar(select(func.count()).select_from(User)) or 0
         report_count = db.scalar(select(func.count()).select_from(DropReport)) or 0
+        identity_count = db.scalar(select(func.count()).select_from(IdentityLink)) or 0
 
     print(
         f"[SEED] inserted_events={inserted} reports={report_count} "
         f"first_report_paths={len(reports[0].top_paths or []) if reports else 0}",
         flush=True,
     )
+    print(
+        f"[SEED] identity_links={identity_count} delivered={identity_stats['delivered']} "
+        f"duplicate_deliveries={identity_stats['duplicates']} conflicts={identity_stats['conflicts']} "
+        f"suspended={identity_stats['suspended']}",
+        flush=True,
+    )
     summary = (
         f"SEED_SUMMARY brand=funnelpath funnels={funnel_count} members={member_count} "
-        f"events={event_count} channels={channel_count} accounts={account_count}"
+        f"events={event_count} channels={channel_count} accounts={account_count} "
+        f"identity_links={identity_count}"
     )
     print(summary, flush=True)
     return summary

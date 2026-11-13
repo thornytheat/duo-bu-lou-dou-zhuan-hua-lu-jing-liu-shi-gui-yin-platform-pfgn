@@ -121,6 +121,12 @@ export default function PathAnalysis() {
           运行 {run ? `${run.code} · ${num(run.entry_users)} 人` : '—'} ·
           {snapshot ? ` worker 缓存 ${snapshot.status}` : ' worker 缓存 idle'}
         </div>
+        {run?.identity && run.identity.merged > 0 ? (
+          <div className="tiny" style={{ marginTop: 8 }} data-testid="path-identity-note">
+            已按身份关联合成 {num(run.identity.merged)} 个跨身份轨迹（吸收 {num(run.identity.absorbed_anonymous)} 个匿名标识）：
+            匿名段与登录段按行为事件时间拼成同一条路径，渠道/设备取最早有效触达。
+          </div>
+        ) : null}
         {error ? (
           <div className="error-box" style={{ marginTop: 12 }}>
             <span>{error}</span>
